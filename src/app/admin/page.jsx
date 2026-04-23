@@ -6,7 +6,8 @@ import { apiPost } from "../../lib/api";
 import heroBanner from "../../../Hero Banner.png";
 
 const sectionClass = "rounded-2xl border border-[#eadfce] bg-[#fffdfa] p-5 shadow-[0_16px_34px_rgba(63,40,22,0.1)]";
-const inputClass = "w-full rounded-xl border border-[#decfbb] bg-[#fffefb] px-3 py-2.5 text-sm outline-none transition focus:border-[#8a5a3b] focus:ring-2 focus:ring-[#8a5a3b]/15";
+const inputClass =
+  "w-full rounded-xl border border-[#decfbb] bg-[#fffefb] px-3 py-2.5 text-sm text-[#2f241b] placeholder:text-[#a08a74] outline-none transition focus:border-[#8a5a3b] focus:ring-2 focus:ring-[#8a5a3b]/15";
 const sizeOptions = ["S", "M", "L", "XL", "XXL"];
 const shoeSizeOptions = ["6", "7", "8", "9", "10", "11"];
 const defaultProductTypeProfiles = {
@@ -214,6 +215,13 @@ export default function AdminPage() {
     return (
       productDrafts[product._id] || {
         name: product.name || "",
+        description: product.description || "",
+        productType: product.productType || "apparel",
+        brandId: product?.brand?._id || product?.brand || "",
+        categoryId: product?.category?._id || product?.category || "",
+        tagsCsv: Array.isArray(product.tags) ? product.tags.join(", ") : "",
+        sizesCsv: Array.isArray(product.sizes) ? product.sizes.join(", ") : "",
+        colorsCsv: Array.isArray(product.colors) ? product.colors.join(", ") : "",
         price: String(product.price ?? ""),
         discount: String(product.discount ?? ""),
         stockCount: String(product.stockCount ?? ""),
@@ -546,11 +554,19 @@ export default function AdminPage() {
   }
 
   async function saveProductEdit(productId) {
-    const draft = productDrafts[productId];
-    if (!draft) return;
+    const product = products.find((item) => item._id === productId);
+    if (!product) return;
+    const draft = productDrafts[productId] || getProductDraft(product);
     try {
       const updated = await fetchWithToken(`/admin/products/${productId}`, token, "PUT", {
         name: draft.name,
+        description: draft.description,
+        productType: draft.productType,
+        brand: draft.brandId || undefined,
+        category: draft.categoryId || undefined,
+        tags: toList(draft.tagsCsv || ""),
+        sizes: toList(draft.sizesCsv || ""),
+        colors: toList(draft.colorsCsv || ""),
         price: Number(draft.price || 0),
         discount: Number(draft.discount || 0),
         stockCount: Number(draft.stockCount || 0),
@@ -583,6 +599,22 @@ export default function AdminPage() {
       setMessage("Product images replaced.");
     } catch (_error) {
       setMessage("Failed to replace product images.");
+    }
+  }
+
+  async function removeExistingProductImage(productId, imageIndex) {
+    const product = products.find((item) => item._id === productId);
+    if (!product) return;
+    const currentImages = Array.isArray(product.images) ? product.images : [];
+    if (imageIndex < 0 || imageIndex >= currentImages.length) return;
+    const nextImages = currentImages.filter((_, idx) => idx !== imageIndex);
+
+    try {
+      const updated = await fetchWithToken(`/admin/products/${productId}`, token, "PUT", { images: nextImages });
+      setProducts((prev) => prev.map((item) => (item._id === productId ? { ...item, ...updated } : item)));
+      setMessage("Product image removed.");
+    } catch (_error) {
+      setMessage("Failed to remove product image.");
     }
   }
 
@@ -1347,8 +1379,11 @@ export default function AdminPage() {
                   {products.map((product) => {
                     const draft = getProductDraft(product);
                     return (
-                      <div key={product._id} className="grid gap-3 rounded-xl border border-[#eadfce] bg-[#fffaf4] p-3 md:grid-cols-[90px_1fr]">
-                        <img src={product.images?.[0] || "https://placehold.co/80x80?text=P"} alt={product.name} className="h-20 w-20 rounded-lg border border-[#e5d5c1] object-cover" />
+                      <div key={product._id} className="grid gap-3 rounded-xl border border-[#eadfce] bg-[#fffaf4] p-3 md:grid-cols-[120px_1fr]">
+                        <div className="space-y-2">
+                          <img src={product.images?.[0] || "https://placehold.co/80x80?text=P"} alt={product.name} className="h-20 w-20 rounded-lg border border-[#e5d5c1] object-cover" />
+                          <p className="text-[11px] text-[#8d7966]">{product.images?.length || 0} image(s)</p>
+                        </div>
                         <div className="grid gap-2 lg:grid-cols-5">
                           <input className={inputClass} value={draft.name} onChange={(e) => upsertDraft(setProductDrafts, product._id, { name: e.target.value })} placeholder="Product name" />
                           <input className={inputClass} type="number" value={draft.price} onChange={(e) => upsertDraft(setProductDrafts, product._id, { price: e.target.value })} placeholder="Price" />
@@ -1358,7 +1393,55 @@ export default function AdminPage() {
                             <option value="active">active</option>
                             <option value="inactive">inactive</option>
                           </select>
+                          <textarea
+                            className={`${inputClass} lg:col-span-5`}
+                            rows={2}
+                            value={draft.description}
+                            onChange={(e) => upsertDraft(setProductDrafts, product._id, { description: e.target.value })}
+                            placeholder="Description"
+                          />
+                          <select className={inputClass} value={draft.productType} onChange={(e) => upsertDraft(setProductDrafts, product._id, { productType: e.target.value })}>
+                            {productTypeOptions.map((type) => (
+                              <option key={type.value} value={type.value}>
+                                {type.label}
+                              </option>
+                            ))}
+                          </select>
+                          <select className={inputClass} value={draft.brandId} onChange={(e) => upsertDraft(setProductDrafts, product._id, { brandId: e.target.value })}>
+                            <option value="">Select Brand</option>
+                            {brands.map((brand) => (
+                              <option key={brand._id} value={brand._id}>
+                                {brand.name}
+                              </option>
+                            ))}
+                          </select>
+                          <select className={inputClass} value={draft.categoryId} onChange={(e) => upsertDraft(setProductDrafts, product._id, { categoryId: e.target.value })}>
+                            <option value="">Select Category</option>
+                            {categories.map((category) => (
+                              <option key={category._id} value={category._id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </select>
+                          <input className={inputClass} value={draft.tagsCsv} onChange={(e) => upsertDraft(setProductDrafts, product._id, { tagsCsv: e.target.value })} placeholder="Tags CSV" />
+                          <input className={inputClass} value={draft.sizesCsv} onChange={(e) => upsertDraft(setProductDrafts, product._id, { sizesCsv: e.target.value })} placeholder="Sizes CSV" />
+                          <input className={inputClass} value={draft.colorsCsv} onChange={(e) => upsertDraft(setProductDrafts, product._id, { colorsCsv: e.target.value })} placeholder="Colors CSV" />
                           <input type="file" accept="image/*" multiple className={`${inputClass} lg:col-span-2`} onChange={(e) => replaceProductImages(product._id, e.target.files)} />
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:col-span-5">
+                            {(product.images || []).map((image, imageIndex) => (
+                              <div key={`${product._id}-${imageIndex}`} className="group relative overflow-hidden rounded-lg border border-[#e5d5c1] bg-[#fffefb]">
+                                <img src={image} alt={`${product.name} ${imageIndex + 1}`} className="h-20 w-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => removeExistingProductImage(product._id, imageIndex)}
+                                  className="absolute right-1.5 top-1.5 hidden h-6 w-6 items-center justify-center rounded-full bg-[#2a170e]/80 text-sm font-bold text-white transition group-hover:inline-flex"
+                                  title="Remove image"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                           <button type="button" onClick={() => saveProductEdit(product._id)} className="rounded-lg bg-[#6d3d20] px-3 py-2 text-xs font-semibold text-white hover:bg-[#5a3219]">
                             Save
                           </button>
