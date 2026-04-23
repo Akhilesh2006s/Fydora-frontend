@@ -5,6 +5,19 @@ import UserAuthGate from "../../components/UserAuthGate";
 import { getCartItems, setCartItems } from "../../lib/cart";
 import { apiGet, apiPost } from "../../lib/api";
 
+const CASHFREE_SDK_URL = "https://sdk.cashfree.com/js/v3/cashfree.js";
+
+/**
+ * Cashfree SDK is loaded at runtime from the global script.
+ * These local type hints keep integration readable and safer.
+ */
+function getCashfreeCheckoutResultError(result) {
+  if (!result || typeof result !== "object") return "";
+  if ("error" in result && result.error?.message) return result.error.message;
+  if ("message" in result && result.message) return result.message;
+  return "";
+}
+
 export default function CartPage() {
   const [cartItems, setLocalCartItems] = useState([]);
   const [checkoutForm, setCheckoutForm] = useState({
@@ -73,8 +86,16 @@ export default function CartPage() {
         resolve();
         return;
       }
+
+      const existingScript = document.querySelector(`script[src="${CASHFREE_SDK_URL}"]`);
+      if (existingScript) {
+        existingScript.addEventListener("load", () => resolve(), { once: true });
+        existingScript.addEventListener("error", () => reject(new Error("Cashfree SDK load failed")), { once: true });
+        return;
+      }
+
       const script = document.createElement("script");
-      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+      script.src = CASHFREE_SDK_URL;
       script.async = true;
       script.onload = () => resolve();
       script.onerror = () => reject(new Error("Cashfree SDK load failed"));
@@ -134,10 +155,14 @@ export default function CartPage() {
         mode: session.environment === "production" ? "production" : "sandbox"
       });
 
-      cashfree.checkout({
+      const checkoutResult = await cashfree.checkout({
         paymentSessionId: session.paymentSessionId,
-        redirectTarget: "_self"
+        redirectTarget: "_modal"
       });
+      const checkoutError = getCashfreeCheckoutResultError(checkoutResult);
+      if (checkoutError) {
+        throw new Error(`Payment not completed: ${checkoutError}`);
+      }
     } catch (error) {
       setCheckoutError(error?.message || "Payment initiation failed. Please check Cashfree setup and try again.");
     } finally {
